@@ -29,6 +29,15 @@ NTLM challenge-response.
     session.auth = HttpNtlmAuth('domain\\username','password', session)
     session.get('http://ntlm_protected_site.com')
 
+``HttpNtlmSspiAuth`` can be used in Window for IWA.
+
+.. code:: python
+
+    import requests
+    from requests_ntlm import HttpNtlmSspiAuth
+    
+    requests.get(site_url, auth=HttpNtlmSspiAuth())
+
 Installation
 ------------
 

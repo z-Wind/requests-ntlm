@@ -1,5 +1,6 @@
 from sspi import ClientAuth
 from requests.auth import AuthBase
+import base64
 
 class HttpNtlmSspiAuth(AuthBase):
     """Requests extension to auto-authenticate user.
@@ -8,9 +9,10 @@ class HttpNtlmSspiAuth(AuthBase):
     """
 
     def __init__(self):
-        self.AuthGen = ClientAuth("NTLM")
+        pass
 
     def __call__(self, r):
+        self.AuthGen = ClientAuth("NTLM")
         r.headers["Connection"] = "Keep-Alive"
         r.register_hook('response', self.response_hook)
         return r
@@ -46,9 +48,10 @@ class HttpNtlmSspiAuth(AuthBase):
             Returns a challenge for the server. That will either initiate the
             communication, or respond to the webservice's challenge.
         """
-        challenge = challenge.decode('base64') if challenge else None
+        challenge = base64.b64decode(challenge) if challenge else None
         _, output_buffer = self.AuthGen.authorize(challenge)
-        return 'NTLM %s' % output_buffer[0].Buffer.encode('base64').replace('\n', '')
+        encode = base64.b64encode(output_buffer[0].Buffer)
+        return 'NTLM %s' % encode.decode().replace('\n', '')
 
     def new_request(self, response):
         response.content
@@ -65,15 +68,25 @@ class HttpNtlmSspiAuth(AuthBase):
         # set back to default (args) for final return
         request = self.new_request(response)
         request.headers[auth_header] = self.authenticate()
-        response = response.connection.send(request, **dict(args, stream=False))
+        # In case authentication info stored in cookies
+        if response.headers.get('set-cookie'):
+            request.headers['Cookie'] = response.headers.get('set-cookie')
+        response1 = response.connection.send(request, **dict(args, stream=False))
 
         # Previous request/response sent initial msg to begin dance.
         # Now we authenticate using the response
-        request = self.new_request(response)
-        ntlm_header_value = response.headers[auth_header_field][5:]
+        request = self.new_request(response1)
+        ntlm_header_value = response1.headers[auth_header_field][5:]
         request.headers[auth_header] = self.authenticate(ntlm_header_value)
 
         # In case authentication info stored in cookies
-        request.headers['Cookie'] = response.headers.get('set-cookie')
-
-        return response.connection.send(request, **args)
+        if response1.headers.get('set-cookie'):
+            request.headers['Cookie'] = response1.headers.get('set-cookie')
+        
+        # append session with history for cookies like <Cookie ARPT>
+        responseFinal = response.connection.send(request, **args)
+        responseFinal.history.append(response)
+        responseFinal.history.append(response1)
+        
+        
+        return responseFinal
